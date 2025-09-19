@@ -24,7 +24,12 @@ var serveCmd = &cobra.Command{
 		}
 		// initialize logger
 		lg := logger.New(logger.Options{Format: cfg.LogFormat, Level: cfg.LogLevel})
-		// init tracer if configured
+		// register telemetry hooks / formatter helpers
+		if err := lg.SetupTelemetry(cmd.Context()); err != nil {
+			lg.WithContext(cmd.Context()).Errorf("setup telemetry error: %v", err)
+		}
+
+		// init tracer (OTLP exporter) if collector configured
 		var shutdown func(context.Context) error
 		if cfg.OTelCollector != "" {
 			sd, err := lg.InitTracer(cmd.Context(), cfg.OTelCollector)

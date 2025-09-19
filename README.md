@@ -46,6 +46,12 @@ As variáveis de ambiente podem ser carregadas com direnv (veja `.envrc`). Princ
 
 - Para habilitar tracing configure `OTEL_COLLECTOR_URL`.
 
+Recomendação de inicialização:
+
+- Primeiro crie o logger (por exemplo `logger.New(...)`).
+- Em seguida chame `logger.SetupTelemetry(ctx)` para registrar hooks/formatters — isso garante que os hooks que adicionam eventos ou badges aos logs já estejam presentes antes de qualquer log de startup.
+- Por fim, se for usar OTLP, chame `logger.InitTracer(ctx, collectorURL)` para configurar o exporter.
+
 ## Exemplo `.env` / `.envrc`
 
 ```env

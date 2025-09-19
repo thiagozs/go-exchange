@@ -131,12 +131,14 @@ func (l *Logger) SetAppModeSlog(mode string) {
 }
 
 func (l *Logger) SetupTelemetry(ctx context.Context) error {
-	//TODO: setup otel here instead of external package
+	// register hooks so formatters and span integrations work for subsequent logs
 	l.logrus.AddHook(spanFieldsHook{})
-
-	// add our local hook that converts logrus entries to span events
 	l.logrus.AddHook(otelLogHook{})
 
+	// emit a debug log so startup logs make it clear what's configured
+	if l.logrus != nil {
+		l.WithContext(ctx).Debugf("telemetry hooks registered: spanFieldsHook, otelLogHook")
+	}
 	return nil
 }
 
