@@ -14,17 +14,14 @@ import (
 )
 
 type Provider interface {
-	// amount is expressed in cents (int64). Return value is cents as int64.
 	Convert(ctx context.Context, from, to string, amount int64) (int64, error)
 }
 
-// Cache is the minimal cache interface used by providers to store raw responses.
 type Cache interface {
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key string, value string, ttl time.Duration) error
 }
 
-// ExchangerateHost implements Provider using exchangerate.host
 type ExchangerateHost struct {
 	baseURL string
 	log     *logger.Logger
@@ -36,15 +33,6 @@ func NewExchangerateHost(lg *logger.Logger, apiKey string, c Cache) *Exchangerat
 	return &ExchangerateHost{baseURL: "https://api.exchangerate.host", log: lg, apiKey: apiKey, cache: c}
 }
 
-type erResponse struct {
-	Success bool           `json:"success"`
-	Query   map[string]any `json:"query"`
-	Info    map[string]any `json:"info"`
-	Error   map[string]any `json:"error"`
-	Result  float64        `json:"result"`
-}
-
-// MissingAPIKeyError indicates the upstream provider requires an API key.
 type MissingAPIKeyError struct {
 	Info string
 }
@@ -52,9 +40,10 @@ type MissingAPIKeyError struct {
 func (e MissingAPIKeyError) Error() string { return "missing exchange provider API key: " + e.Info }
 
 func (p *ExchangerateHost) Convert(ctx context.Context, from, to string, amount int64) (int64, error) {
-	// Use cached rates per base currency when possible to reduce upstream calls.
 	cacheKey := "rates:exchangerate.host:" + from
+
 	var raw []byte
+
 	if p.cache != nil {
 		if cached, err := p.cache.Get(ctx, cacheKey); err == nil && cached != "" {
 			if p.log != nil {
@@ -69,6 +58,7 @@ func (p *ExchangerateHost) Convert(ctx context.Context, from, to string, amount 
 		if p.apiKey != "" {
 			url = url + fmt.Sprintf("&access_key=%s", p.apiKey)
 		}
+
 		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -77,6 +67,7 @@ func (p *ExchangerateHost) Convert(ctx context.Context, from, to string, amount 
 			}
 			return 0, err
 		}
+
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
@@ -86,17 +77,22 @@ func (p *ExchangerateHost) Convert(ctx context.Context, from, to string, amount 
 			}
 			return 0, fmt.Errorf("exchange request failed status=%d", resp.StatusCode)
 		}
+
 		r, err := io.ReadAll(resp.Body)
 		if err != nil {
 			if p.log != nil {
 				p.log.WithContext(ctx).Errorf("failed reading exchange response body: %v", err)
 			}
+
 			return 0, err
 		}
+
 		raw = r
+
 		if p.cache != nil {
 			_ = p.cache.Set(ctx, cacheKey, string(raw), 20*time.Minute)
 		}
+
 		if p.log != nil {
 			p.log.WithContext(ctx).Debugf("exchange raw response for url=%s body=%s", url, string(raw))
 		}
@@ -118,6 +114,7 @@ func (p *ExchangerateHost) Convert(ctx context.Context, from, to string, amount 
 		if p.log != nil {
 			p.log.WithContext(ctx).Errorf("exchange response not successful: %+v", er)
 		}
+
 		// detect missing_access_key if present
 		if er.Error != nil {
 			if t, ok := er.Error["type"].(string); ok && t == "missing_access_key" {

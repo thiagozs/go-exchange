@@ -22,8 +22,10 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
 		// initialize logger
 		lg := logger.New(logger.Options{Format: cfg.LogFormat, Level: cfg.LogLevel})
+
 		// register telemetry hooks / formatter helpers
 		if err := lg.SetupTelemetry(cmd.Context()); err != nil {
 			lg.WithContext(cmd.Context()).Errorf("setup telemetry error: %v", err)
@@ -39,12 +41,14 @@ var serveCmd = &cobra.Command{
 				shutdown = sd
 			}
 		}
+
 		s := server.New(cfg, lg)
 		lg.WithContext(cmd.Context()).Infof("Starting server on %s", cfg.HTTPAddr)
-		// ensure tracer shutdown when command/context ends
+
 		if shutdown != nil {
 			defer shutdown(cmd.Context())
 		}
+
 		return s.Run()
 	},
 }

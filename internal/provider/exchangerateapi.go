@@ -12,17 +12,13 @@ import (
 	"github.com/thiagozs/go-exchange/internal/logger"
 )
 
-// ExchangeRateAPI implements Provider using exchangerate-api.com v6
 type ExchangeRateAPI struct {
-	baseURL string
 	log     *logger.Logger
-	apiKey  string
 	cache   Cache
+	baseURL string
+	apiKey  string
 }
 
-// NewExchangeRateAPI constructs a new ExchangeRateAPI provider. apiKey may be empty
-// but the upstream requires a key for some plans; errors from the upstream will
-// be propagated as MissingAPIKeyError when detected.
 func NewExchangeRateAPI(lg *logger.Logger, apiKey string, c Cache) *ExchangeRateAPI {
 	return &ExchangeRateAPI{baseURL: "https://v6.exchangerate-api.com/v6", log: lg, apiKey: apiKey, cache: c}
 }
@@ -37,14 +33,10 @@ type eraResponse struct {
 }
 
 func (p *ExchangeRateAPI) Convert(ctx context.Context, from, to string, amount int64) (int64, error) {
-	// exchangerate-api returns rates relative to a base currency. We'll fetch
-	// latest rates for the `from` currency and then compute the `to` rate.
-	// amount is cents; convert to units float for calculation.
 	if p.apiKey == "" {
-		// upstream returns a JSON with result != "success" when key is missing;
-		// return MissingAPIKeyError for consistent handling upstream.
 		return 0, MissingAPIKeyError{Info: "api key not provided for exchangerate-api"}
 	}
+
 	// Try cache of rates per base currency to avoid repeated upstream calls.
 	cacheKey := "rates:exchangerate-api:" + from
 	var raw []byte
@@ -53,6 +45,7 @@ func (p *ExchangeRateAPI) Convert(ctx context.Context, from, to string, amount i
 			if p.log != nil {
 				p.log.WithContext(ctx).Debugf("using cached rates for base=%s", from)
 			}
+
 			raw = []byte(cached)
 		}
 	}
@@ -64,8 +57,10 @@ func (p *ExchangeRateAPI) Convert(ctx context.Context, from, to string, amount i
 			if p.log != nil {
 				p.log.WithContext(ctx).Errorf("exchange request error: %v", err)
 			}
+
 			return 0, err
 		}
+
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
@@ -73,6 +68,7 @@ func (p *ExchangeRateAPI) Convert(ctx context.Context, from, to string, amount i
 			if p.log != nil {
 				p.log.WithContext(ctx).Errorf("exchange request failed status=%d body=%s", resp.StatusCode, string(body))
 			}
+
 			return 0, fmt.Errorf("exchange request failed status=%d", resp.StatusCode)
 		}
 
@@ -83,11 +79,14 @@ func (p *ExchangeRateAPI) Convert(ctx context.Context, from, to string, amount i
 			}
 			return 0, err
 		}
+
 		raw = r
+
 		if p.cache != nil {
 			// cache raw rates for 20 minutes
 			_ = p.cache.Set(ctx, cacheKey, string(raw), 20*time.Minute)
 		}
+
 		if p.log != nil {
 			p.log.WithContext(ctx).Debugf("exchange raw response for url=%s body=%s", url, string(raw))
 		}

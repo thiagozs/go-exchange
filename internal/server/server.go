@@ -43,15 +43,22 @@ func (rw *respWriter) Write(b []byte) (int, error) {
 }
 
 func New(cfg *config.Config, lg *logger.Logger) *Server {
-	c := cache.New(cfg.RedisAddr, cfg.RedisDB, cfg.RedisUsername, cfg.RedisPassword, lg)
+	c := cache.New(cfg.RedisAddr, cfg.RedisDB,
+		cfg.RedisUsername, cfg.RedisPassword, lg)
+
 	prov := provider.NewProviderFromConfig(cfg, lg, c)
+
 	var fprov fee.Provider
+
 	if cfg.FeeAPIURL != "" {
 		fprov = fee.NewFeeAPIProvider(cfg.FeeAPIURL, lg)
 	} else if cfg.FeePercent > 0 {
 		fprov = fee.NewEnvFeeProviderWithPercent(cfg.FeePercent)
 	}
-	return &Server{cfg: cfg, cache: c, prov: prov, fee: fprov, log: lg}
+
+	return &Server{cfg: cfg, cache: c,
+		prov: prov, fee: fprov, log: lg,
+	}
 }
 
 func (s *Server) Run() error {
@@ -68,18 +75,23 @@ func (s *Server) instrumentHandler(next http.HandlerFunc) http.HandlerFunc {
 		defer end()
 		// pass context with span to request handlers
 		r = r.WithContext(ctx)
-		rw := &respWriter{ResponseWriter: w, status: http.StatusOK}
+		rw := &respWriter{ResponseWriter: w,
+			status: http.StatusOK,
+		}
 
 		next(rw, r)
+
 		duration := time.Since(start)
+
 		// structured access log
-		entry := s.log.WithContext(ctx).WithFields(map[string]interface{}{
+		entry := s.log.WithContext(ctx).WithFields(map[string]any{
 			"method":   r.Method,
 			"path":     r.URL.Path,
 			"status":   rw.status,
 			"duration": duration.Seconds(),
 			"size":     rw.size,
 		})
+
 		// add trace_id/span_id if present
 		span := s.log.WithContext(ctx)
 		if v, ok := span.Data["trace_id"]; ok {
@@ -88,6 +100,7 @@ func (s *Server) instrumentHandler(next http.HandlerFunc) http.HandlerFunc {
 		if v, ok := span.Data["span_id"]; ok {
 			entry = entry.WithField("span_id", v)
 		}
+
 		entry.Info("access")
 	}
 }
@@ -114,6 +127,7 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid amount", http.StatusBadRequest)
 			return
 		}
+
 		amountInt = int64(math.Round(f * 100.0))
 	} else {
 		ai, err := strconv.ParseInt(amountStr, 10, 64)
@@ -121,8 +135,10 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid amount", http.StatusBadRequest)
 			return
 		}
+
 		amountInt = ai
 	}
+
 	// normalize cache key to use integer cents to avoid duplicates
 	key := "convert:" + from + ":" + to + ":" + strconv.FormatInt(amountInt, 10)
 	if val, err := s.cache.Get(ctx, key); err == nil && val != "" {
@@ -146,22 +162,37 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "provider error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	// apply fee (if configured)
 	var feePct float64
 	if s.fee != nil {
 		feePct, _ = s.fee.FeePercent(from, to)
 	}
+
 	// feeAmt in cents
 	feeAmt := int64(math.Round(float64(resCents) * feePct))
+
 	netCents := resCents - feeAmt
-	out := map[string]any{"from": from, "to": to, "amount_cents": amountInt, "result_cents": resCents, "result": float64(resCents) / 100.0, "fee_percent": feePct, "fee_amount_cents": feeAmt, "net_result_cents": netCents, "net_result": float64(netCents) / 100.0}
+
+	out := map[string]any{"from": from,
+		"to": to, "amount_cents": amountInt,
+		"result_cents":     resCents,
+		"result":           float64(resCents) / 100.0,
+		"fee_percent":      feePct,
+		"fee_amount_cents": feeAmt,
+		"net_result_cents": netCents,
+		"net_result":       float64(netCents) / 100.0,
+	}
+
 	b, _ := json.Marshal(out)
+
 	// avoid caching zero results which are likely from a failed provider call
 	if resCents == 0 {
 		s.log.Errorf("not caching zero conversion result for %s->%s amount=%d", from, to, amountInt)
 	} else {
 		s.cache.Set(ctx, key, string(b), s.cfg.CacheTTL)
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(b)
 }
