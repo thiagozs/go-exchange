@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  app:
+    build: .
+    environment:
+      - HTTP_ADDR=${HTTP_ADDR:-:8080}
+      - REDIS_ADDR=${REDIS_ADDR:-redis:6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - CACHE_TTL=${CACHE_TTL:-5m}
+    depends_on:
+      - redis
+    ports:
+      - "8080:8080"
+
+volumes:
+  redis-data:
