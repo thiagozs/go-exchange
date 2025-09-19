@@ -151,6 +151,21 @@ func NewProviderFromConfig(cfg *config.Config, lg *logger.Logger, c Cache) Provi
 		return NewExchangerateHost(lg, cfg.ExchangeAPIKey, c)
 	case "exchangerate-api", "exchangerate-api.com", "exchange-rate-api":
 		return NewExchangeRateAPI(lg, cfg.ExchangeAPIKey, c)
+	case "bcb", "ptax":
+		base := cfg.BCBAPIBaseURL
+		timeout := cfg.BCBTimeout
+		if timeout == 0 {
+			timeout = 10 * time.Second
+		}
+		maxRetries := cfg.BCBMaxRetries
+		if maxRetries == 0 {
+			maxRetries = 3
+		}
+		maxBack := cfg.BCBMaxBackDays
+		if maxBack == 0 {
+			maxBack = 5
+		}
+		return NewBCBProvider(lg, base, timeout, maxRetries, maxBack, c)
 	default:
 		return NewExchangerateHost(lg, cfg.ExchangeAPIKey, c)
 	}

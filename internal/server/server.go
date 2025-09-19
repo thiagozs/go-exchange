@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/thiagozs/go-exchange/internal/cache"
@@ -64,8 +67,45 @@ func New(cfg *config.Config, lg *logger.Logger) *Server {
 func (s *Server) Run() error {
 	http.HandleFunc("/convert", s.instrumentHandler(s.handleConvert))
 	http.HandleFunc("/health", s.instrumentHandler(s.handleHealth))
-	s.log.WithContext(context.Background()).Infof("listening on %s", s.cfg.HTTPAddr)
-	return http.ListenAndServe(s.cfg.HTTPAddr, nil)
+
+	srv := &http.Server{
+		Addr:    s.cfg.HTTPAddr,
+		Handler: nil, // default mux
+	}
+
+	// start server
+	errCh := make(chan error, 1)
+	go func() {
+		s.log.WithContext(context.Background()).Infof("listening on %s", s.cfg.HTTPAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	// listen for termination signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case sig := <-sigCh:
+		s.log.WithContext(context.Background()).Infof("received signal %v: shutting down", sig)
+		// attempt graceful shutdown with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			s.log.WithContext(context.Background()).Errorf("graceful shutdown failed: %v", err)
+			return err
+		}
+		s.log.WithContext(context.Background()).Infof("server gracefully stopped")
+		return nil
+	case err := <-errCh:
+		if err != nil {
+			s.log.WithContext(context.Background()).Errorf("server error: %v", err)
+			return err
+		}
+		return nil
+	}
 }
 
 func (s *Server) instrumentHandler(next http.HandlerFunc) http.HandlerFunc {

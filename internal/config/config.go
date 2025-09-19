@@ -19,6 +19,11 @@ type Config struct {
 	FeeAPIURL        string        `env:"FEE_API_URL" envDefault:""`
 	FeePercent       float64       `env:"EXCHANGE_FEE_PERCENT" envDefault:"0"`
 	ExchangeAPIKey   string        `env:"EXCHANGE_API_KEY" envDefault:""`
+	// BCB / PTAX provider specific settings
+	BCBAPIBaseURL  string        `env:"BCB_API_BASE_URL" envDefault:"https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"`
+	BCBTimeout     time.Duration `env:"BCB_TIMEOUT_SECONDS" envDefault:"10s"`
+	BCBMaxRetries  int           `env:"BCB_MAX_RETRIES" envDefault:"3"`
+	BCBMaxBackDays int           `env:"BCB_MAX_BACK_DAYS" envDefault:"0"`
 	// Logger configuration
 	LogFormat     string `env:"LOG_FORMAT" envDefault:"text"` // text or json
 	LogLevel      string `env:"LOG_LEVEL" envDefault:"info"`
