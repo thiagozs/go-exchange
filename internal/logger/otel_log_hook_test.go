@@ -8,6 +8,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
@@ -44,7 +46,7 @@ func TestOtelLogHookAddsEvent(t *testing.T) {
 	l := New(Options{Format: "text", Level: "debug", Out: &bytes.Buffer{}})
 	// point logger tracer to our test provider
 	l.tracer = tp.Tracer("test")
-	if err := l.SetupTelemetry(context.Background()); err != nil {
+	if err := l.SetupTelemetry(context.Background(), nil); err != nil {
 		t.Fatalf("setup telemetry: %v", err)
 	}
 
@@ -72,5 +74,59 @@ func TestOtelLogHookAddsEvent(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected a span event named 'log' to be exported; got events=%v", evs)
+	}
+}
+
+type testLogExporter struct {
+	records []sdklog.Record
+}
+
+func (t *testLogExporter) Export(_ context.Context, records []sdklog.Record) error {
+	for _, r := range records {
+		t.records = append(t.records, r.Clone())
+	}
+	return nil
+}
+
+func (t *testLogExporter) Shutdown(context.Context) error { return nil }
+
+func (t *testLogExporter) ForceFlush(context.Context) error { return nil }
+
+func TestOtelLogHookEmitsLogRecord(t *testing.T) {
+	ctx := context.Background()
+	exp := &testLogExporter{}
+	lgProvider := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exp)))
+	t.Cleanup(func() { _ = lgProvider.Shutdown(context.Background()) })
+
+	l := New(Options{Format: "text", Level: "debug", Name: "test-logs", Out: &bytes.Buffer{}})
+	if err := l.SetupTelemetry(ctx, nil); err != nil {
+		t.Fatalf("setup telemetry failed: %v", err)
+	}
+	if l.otelHook == nil {
+		t.Fatalf("otel hook not initialized on logger")
+	}
+	l.otelHook.setEmitter(lgProvider.Logger("test-logs"))
+
+	l.WithContext(ctx).WithField("user_id", 42).Warn("emit record")
+
+	if len(exp.records) == 0 {
+		t.Fatalf("expected log records to be exported")
+	}
+	rec := exp.records[len(exp.records)-1]
+	if got := rec.Body().AsString(); got != "emit record" {
+		t.Fatalf("unexpected log body: %s", got)
+	}
+	if rec.Severity() != otellog.SeverityWarn {
+		t.Fatalf("expected severity warn, got %v", rec.Severity())
+	}
+	var hasUserID bool
+	rec.WalkAttributes(func(kv otellog.KeyValue) bool {
+		if kv.Key == "user_id" && kv.Value.AsInt64() == 42 {
+			hasUserID = true
+		}
+		return true
+	})
+	if !hasUserID {
+		t.Fatalf("expected user_id attribute in exported record")
 	}
 }

@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/spf13/cobra"
 	"github.com/thiagozs/go-exchange/internal/config"
 	"github.com/thiagozs/go-exchange/internal/logger"
@@ -24,30 +22,36 @@ var serveCmd = &cobra.Command{
 		}
 
 		// initialize logger
-		lg := logger.New(logger.Options{Format: cfg.LogFormat, Level: cfg.LogLevel})
+		lg := logger.New(logger.Options{Format: cfg.LogFormat, Level: cfg.LogLevel, Name: cfg.AppName})
 
 		// register telemetry hooks / formatter helpers
-		if err := lg.SetupTelemetry(cmd.Context()); err != nil {
+		if err := lg.SetupTelemetry(cmd.Context(), cfg); err != nil {
 			lg.WithContext(cmd.Context()).Errorf("setup telemetry error: %v", err)
 		}
 
-		// init tracer (OTLP exporter) if collector configured
-		var shutdown func(context.Context) error
-		if cfg.OTelCollector != "" {
-			sd, err := lg.InitTracer(cmd.Context(), cfg.OTelCollector)
-			if err != nil {
-				lg.WithContext(cmd.Context()).Errorf("otel init error: %v", err)
-			} else {
-				shutdown = sd
+		// init OTLP (traces/metrics/logs) if collector configured
+		//var shutdown func(context.Context) error
+
+		shutdown, infos, err := lg.SetupOTel(cmd.Context(), cfg)
+		if err != nil {
+			lg.WithContext(cmd.Context()).Warnf("failed to setup otel: %v", err)
+		} else {
+			if len(infos) > 0 {
+				for _, info := range infos {
+					lg.WithContext(cmd.Context()).Infof("OTEL exporter: type=%s endpoint=%s insecure=%t headers=%v", info.Type, info.Endpoint, info.Insecure, info.Headers)
+				}
 			}
+		}
+		if shutdown != nil {
+			defer func() { _ = shutdown(cmd.Context()) }()
 		}
 
 		s := server.New(cfg, lg)
 		lg.WithContext(cmd.Context()).Infof("Starting server on %s", cfg.HTTPAddr)
 
-		if shutdown != nil {
-			defer shutdown(cmd.Context())
-		}
+		// if shutdown != nil {
+		// 	defer shutdown(cmd.Context())
+		// }
 
 		return s.Run()
 	},

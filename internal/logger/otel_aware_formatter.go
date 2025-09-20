@@ -17,6 +17,7 @@ type OTelAwareTextFormatter struct {
 	EnableColors        bool
 	AppName             string // mostrado como [AppName]
 	AppMode             string // Incomming, Outgoing, All
+	AppVersion          string // semantic version or git sha
 
 	// NOVO: controle de span/ids
 	ShowTraceIDs    bool   // se true, imprime trace_id/span_id; se false, oculta
@@ -50,7 +51,11 @@ func (f *OTelAwareTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 	appStr := ""
 	if app != "" {
-		appStr = fmt.Sprintf("[%s]", app)
+		if f.AppVersion != "" {
+			appStr = fmt.Sprintf("[%s@%s]", app, f.AppVersion)
+		} else {
+			appStr = fmt.Sprintf("[%s]", app)
+		}
 	}
 
 	level := entry.Level.String()

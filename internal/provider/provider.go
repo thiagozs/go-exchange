@@ -162,9 +162,9 @@ func NewProviderFromConfig(cfg *config.Config, lg *logger.Logger, c Cache) Provi
 			maxRetries = 3
 		}
 		maxBack := cfg.BCBMaxBackDays
-		if maxBack == 0 {
-			maxBack = 5
-		}
+		// if maxBack == 0 {
+		// 	maxBack = 1
+		// }
 		return NewBCBProvider(lg, base, timeout, maxRetries, maxBack, c)
 	default:
 		return NewExchangerateHost(lg, cfg.ExchangeAPIKey, c)

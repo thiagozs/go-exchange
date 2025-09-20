@@ -14,11 +14,12 @@ type Config struct {
 	RedisUsername    string        `env:"REDIS_USERNAME" envDefault:""`
 	RedisPassword    string        `env:"REDIS_PASSWORD" envDefault:""`
 	RedisRequireAuth bool          `env:"REDIS_REQUIRE_AUTH" envDefault:"false"`
-	Provider         string        `env:"EXCHANGE_PROVIDER" envDefault:"exchangerate.host"`
 	CacheTTL         time.Duration `env:"CACHE_TTL" envDefault:"5m"`
 	FeeAPIURL        string        `env:"FEE_API_URL" envDefault:""`
 	FeePercent       float64       `env:"EXCHANGE_FEE_PERCENT" envDefault:"0"`
-	ExchangeAPIKey   string        `env:"EXCHANGE_API_KEY" envDefault:""`
+	// Exchangerate.host or others - specific settings
+	Provider       string `env:"EXCHANGE_PROVIDER" envDefault:"exchangerate.host"`
+	ExchangeAPIKey string `env:"EXCHANGE_API_KEY" envDefault:""`
 	// BCB / PTAX provider specific settings
 	BCBAPIBaseURL  string        `env:"BCB_API_BASE_URL" envDefault:"https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"`
 	BCBTimeout     time.Duration `env:"BCB_TIMEOUT_SECONDS" envDefault:"10s"`
@@ -28,6 +29,21 @@ type Config struct {
 	LogFormat     string `env:"LOG_FORMAT" envDefault:"text"` // text or json
 	LogLevel      string `env:"LOG_LEVEL" envDefault:"info"`
 	OTelCollector string `env:"OTEL_COLLECTOR_URL" envDefault:""` // optional OTEL collector endpoint
+	// Advanced OTLP options
+	OTLPEndpoint string `env:"OTLP_ENDPOINT" envDefault:""` // explicit OTLP endpoint (overrides OTEL_COLLECTOR_URL)
+	OTLPHeaders  string `env:"OTLP_HEADERS" envDefault:""`  // comma-separated headers KEY=VALUE
+	OTLPUseTLS   bool   `env:"OTLP_USE_TLS" envDefault:"false"`
+	// TLS customization for OTLP exporters (optional)
+	OTLPTLSCAPath          string `env:"OTLP_TLS_CA_PATH" envDefault:""`
+	OTLPTLSCertPath        string `env:"OTLP_TLS_CERT_PATH" envDefault:""`
+	OTLPTLSKeyPath         string `env:"OTLP_TLS_KEY_PATH" envDefault:""`
+	OTLPInsecureSkipVerify bool   `env:"OTLP_INSECURE_SKIP_VERIFY" envDefault:"false"`
+	// Application environment (development, staging, production, etc)
+	Environment string `env:"ENVIRONMENT" envDefault:"development"`
+	// Service identification
+	AppName    string `env:"APP_NAME" envDefault:"go-exchange"`
+	AppVersion string `env:"APP_VERSION" envDefault:"1.0.0"`
+	AppEnv     string `env:"APP_ENV" envDefault:"development"`
 }
 
 func Load() (*Config, error) {

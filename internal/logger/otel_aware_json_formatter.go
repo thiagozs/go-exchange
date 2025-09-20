@@ -15,6 +15,7 @@ type OTelAwareJSONFormatter struct {
 	DisableUppercaseLvl bool
 	AppName             string
 	AppMode             string // Incomming, Outgoing, All
+	AppVersion          string // semantic version or git sha
 	ShowTraceIDs        bool
 	EnableSpanBadge     bool
 	SpanBadgeText       string
@@ -49,6 +50,14 @@ func (f *OTelAwareJSONFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 	if app != "" {
 		data["app"] = app
+	}
+
+	if f.AppVersion != "" {
+		data["version"] = f.AppVersion
+	}
+
+	if f.AppMode != "" {
+		data["mode"] = f.AppMode
 	}
 
 	data["msg"] = stripContextPrefix(entry.Message)

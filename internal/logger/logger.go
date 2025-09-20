@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"reflect"
 	"runtime"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/thiagozs/go-exchange/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -30,6 +32,7 @@ type Logger struct {
 	tracer    trace.Tracer
 	name      string
 	formatter string
+	otelHook  *otelLogHook
 }
 
 // Options for initializing the logger
@@ -48,11 +51,15 @@ func NewLogger(name, format string) (*Logger, error) {
 
 	// ensure span->fields hook is always present so formatters can show span badges
 	lg.AddHook(spanFieldsHook{})
+	// create OTEL hook upfront so it can be wired once exporters are configured
+	otelHook := &otelLogHook{loggerName: name}
+	lg.AddHook(otelHook)
 
 	return &Logger{logrus: lg,
 		tracer:    otel.Tracer(name),
 		name:      name,
 		formatter: format,
+		otelHook:  otelHook,
 	}, nil
 }
 
@@ -67,10 +74,14 @@ func New(opts Options) *Logger {
 		if perr == nil {
 			tmp.SetLevel(lvl)
 		}
+		tmp.AddHook(spanFieldsHook{})
+		hook := &otelLogHook{loggerName: opts.Name}
+		tmp.AddHook(hook)
 		return &Logger{logrus: tmp,
 			tracer:    otel.Tracer(opts.Name),
 			name:      opts.Name,
 			formatter: opts.Format,
+			otelHook:  hook,
 		}
 	}
 	if opts.Out != nil {
@@ -130,26 +141,91 @@ func (l *Logger) SetAppModeSlog(mode string) {
 	}
 }
 
-func (l *Logger) SetupTelemetry(ctx context.Context) error {
+func (l *Logger) SetupTelemetry(ctx context.Context, cfg *config.Config) error {
 	// register hooks so formatters and span integrations work for subsequent logs
 	l.logrus.AddHook(spanFieldsHook{})
-	l.logrus.AddHook(otelLogHook{})
+	if l.otelHook == nil {
+		h := &otelLogHook{loggerName: l.name}
+		l.otelHook = h
+		l.logrus.AddHook(h)
+	}
+
+	// populate formatter metadata (version, mode) from config if provided,
+	// fallback to environment variables.
+	appVersion := strings.TrimSpace(getenvDefault("APP_VERSION", getenvDefault("VERSION", "")))
+	appMode := strings.TrimSpace(getenvDefault("APP_ENV", getenvDefault("ENVIRONMENT", "")))
+	if cfg != nil {
+		if cfg.AppVersion != "" {
+			appVersion = strings.TrimSpace(cfg.AppVersion)
+		}
+		if cfg.AppEnv != "" {
+			appMode = strings.TrimSpace(cfg.AppEnv)
+		}
+	}
+
+	if f, ok := l.logrus.Formatter.(*OTelAwareJSONFormatter); ok {
+		if appVersion != "" {
+			f.AppVersion = appVersion
+		}
+		if appMode != "" {
+			f.AppMode = appMode
+		}
+	}
+	if f, ok := l.logrus.Formatter.(*OTelAwareTextFormatter); ok {
+		if appVersion != "" {
+			f.AppVersion = appVersion
+		}
+		if appMode != "" {
+			f.AppMode = appMode
+		}
+	}
+
+	// annotate logs with hostname if available
+	if hn, err := os.Hostname(); err == nil && hn != "" {
+		l.logrus.WithField("host", hn)
+	}
 
 	// emit a debug log so startup logs make it clear what's configured
 	if l.logrus != nil {
-		l.WithContext(ctx).Debugf("telemetry hooks registered: spanFieldsHook, otelLogHook")
+		collector := ""
+		if cfg != nil {
+			collector = strings.TrimSpace(cfg.OTelCollector)
+		}
+		if collector == "" {
+			collector = strings.TrimSpace(os.Getenv("OTEL_COLLECTOR_URL"))
+		}
+		if collector == "" {
+			l.WithContext(ctx).Debugf("telemetry hooks registered: spanFieldsHook, otelLogHook; OTEL collector not configured; app=%s version=%s env=%s", l.name, appVersion, appMode)
+		} else {
+			l.WithContext(ctx).Debugf("telemetry hooks registered: spanFieldsHook, otelLogHook; OTEL_COLLECTOR_URL=%s; app=%s version=%s env=%s", collector, l.name, appVersion, appMode)
+		}
 	}
+
 	return nil
 }
 
+// getenvDefault returns the environment variable value or the provided default when empty.
+func getenvDefault(key, def string) string {
+	if v := os.Getenv(key); strings.TrimSpace(v) != "" {
+		return v
+	}
+	return def
+}
+
 func getFileName() string {
-	_, file, line, ok := runtime.Caller(3)
+	// skip 3 frames to point to the caller of the logger helper
+	pc, file, line, ok := runtime.Caller(3)
 
 	filename := "unknown"
-
 	if ok {
 		parts := strings.Split(file, "/")
-		filename = parts[len(parts)-1] + ":" + strconv.Itoa(line)
+		funcName := "unknown"
+		if f := runtime.FuncForPC(pc); f != nil {
+			// return only the last part of the function path
+			fnParts := strings.Split(f.Name(), ".")
+			funcName = fnParts[len(fnParts)-1]
+		}
+		filename = fmt.Sprintf("%s:%d:%s", parts[len(parts)-1], line, funcName)
 	}
 	return filename
 }
@@ -178,11 +254,13 @@ func (l *Logger) WithFields(fields logrus.Fields) *logrus.Entry {
 }
 
 func (l *Logger) WithContext(ctx context.Context) *logrus.Entry {
-	return l.logrus.WithContext(ctx)
+	// include default fields (file/origin/mode) on entries created with context
+	return l.logrus.WithContext(ctx).WithFields(l.fillFields(logrus.Fields{}))
 }
 
 func (l *Logger) SlogWithFields(ctx context.Context, fields logrus.Fields) *logrus.Entry {
-	return l.logrus.WithContext(ctx).WithFields(l.fillFields(fields))
+	// use WithContext which already includes the standard fields and then add user fields
+	return l.WithContext(ctx).WithFields(fields)
 }
 
 func (l *Logger) SetTracer(name string) {
@@ -204,7 +282,7 @@ func (l *Logger) Debugf(format string, args ...any) {
 func (l *Logger) Span(ctx context.Context, name string, attr ...KeyValue) (context.Context, Span) {
 	if l.tracer == nil {
 		l.tracer = otel.Tracer("logger")
-		l.logrus.Warn("tracer not set; using default 'logger'")
+		l.WithContext(context.Background()).Warn("tracer not set; using default 'logger'")
 	}
 
 	if len(attr) > 0 {
@@ -213,7 +291,7 @@ func (l *Logger) Span(ctx context.Context, name string, attr ...KeyValue) (conte
 			keys[i] = string(attr[i].Key)
 		}
 
-		l.logrus.Debugf("starting span %q with %d attrs: %v", name, len(attr), keys)
+		l.WithContext(context.Background()).Debugf("starting span %q with %d attrs: %v", name, len(attr), keys)
 	}
 
 	return l.tracer.Start(ctx, name, trace.WithAttributes(attr...))
