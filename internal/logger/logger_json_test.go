@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"os"
 	"testing"
 
 	"go.opentelemetry.io/otel/trace/noop"
@@ -11,7 +13,8 @@ import (
 
 func TestJSONIncludesTraceAndSpan(t *testing.T) {
 	var buf bytes.Buffer
-	lg := New(Options{Format: "json", Level: "debug", Out: &buf})
+	writer := io.MultiWriter(&buf, os.Stdout)
+	lg := New(Options{Format: "json", Level: "debug", Out: writer})
 
 	tracer := noop.NewTracerProvider().Tracer("test")
 	ctx, span := tracer.Start(context.Background(), "span")

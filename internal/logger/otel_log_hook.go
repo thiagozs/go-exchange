@@ -102,12 +102,12 @@ func (h *otelLogHook) Fire(e *logrus.Entry) error {
 			attrs = append(attrs, attribute.Float64(k, float64(x)))
 		case float64:
 			attrs = append(attrs, attribute.Float64(k, x))
+		case time.Duration:
+			attrs = append(attrs, attribute.Int64(k, int64(x)))
 		case error:
 			attrs = append(attrs, attribute.String(k, x.Error()))
 		case fmt.Stringer:
 			attrs = append(attrs, attribute.String(k, x.String()))
-		case time.Duration:
-			attrs = append(attrs, attribute.Int64(k, int64(x)))
 		default:
 			attrs = append(attrs, attribute.String(k, fmt.Sprint(v)))
 		}
